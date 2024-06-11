@@ -4,7 +4,9 @@
   "version": "1.0.0",
   "scripts": {
     "build": "hardhat compile",
-    "greeter": "hardhat run scripts/exec.js"
+    "greeter": "hardhat run scripts/exec.js",
+    "deploy": "hardhat run scripts/exec.js",
+    "deploy1": "hardhat run scripts/exec1.js"
   },
   "devDependencies": {
     "@nomiclabs/hardhat-ethers": "^2.0.2",

@@ -11,7 +11,7 @@ const {
   L1ToL2MessageStatus,
   EthBridger,
   getL2Network,
-  addDefaultLocalNetwork,
+  addCustomNetwork,
 } = require('@arbitrum/sdk')
 const { getBaseFee } = require('@arbitrum/sdk/dist/lib/utils/lib')
 requireEnvVariables(['DEVNET_PRIVKEY', 'L2RPC', 'L1RPC'])
@@ -31,10 +31,56 @@ const main = async () => {
   await arbLog('Cross-chain Greeter')
 
   /**
-   * Add the default local network configuration to the SDK
-   * to allow this script to run on a local node
+   * Add the custom network configuration to the SDK
+   * to allow this script to run on a custom network
    */
-  addDefaultLocalNetwork()
+  addCustomNetwork({
+    customL1Network: {
+      blockTime: 10,
+      chainID: 84532,
+      explorerUrl: '',
+      isCustom: true,
+      name: 'unknown',
+      partnerChainIDs: [48220505331],
+      isArbitrum: false,
+    },
+    customL2Network: {
+      chainID: 48220505331,
+      confirmPeriodBlocks: 150,
+      ethBridge: {
+        bridge: '0xD1f5071dEe8CcB24CB06E569B91CB28D0ddC69f5',
+        inbox: '0x36a1C54eF8b855AA9c615Fe79084Ba0187f3e23F',
+        outbox: '0xb206292766f63200f9c6151C2667048eDA397c9a',
+        rollup: '0x555fb408604e7FbCfAfb3A87F47771228A5e50F1',
+        sequencerInbox: '0x0264a71E02799EDb1d6f6cBdFBcfbFffDc1b743b',
+      },
+      explorerUrl: '',
+      isArbitrum: true,
+      isCustom: true,
+      name: 'OrbitChain',
+      partnerChainID: 84532,
+      retryableLifetimeSeconds: 604800,
+      nitroGenesisBlock: 0,
+      nitroGenesisL1Block: 0,
+      depositTimeout: 900000,
+      tokenBridge: {
+        l1CustomGateway: '0xdE91119040f02D5E27DF18dDdB015C93671EB85A',
+        l1ERC20Gateway: '0x9ae964c8F81D8F39Cc850F290846f3705dD52447',
+        l1GatewayRouter: '0xdF9Da5A933Ad3864E908060cfd8D2358B7814796',
+        l1MultiCall: '0x53766D2CEF3544337ad775cF96Eb2Df834768eFe',
+        l1ProxyAdmin: '0x981cE388B0B53C022F5AD6473791A4de585092f4',
+        l1Weth: '0x4200000000000000000000000000000000000006',
+        l1WethGateway: '0x5C6fE495788468892B5884a2aFB937BBffCF00ec',
+        l2CustomGateway: '0x243B4cB3f7C2C2196e96ef53213022ADDaa71079',
+        l2ERC20Gateway: '0x0665732aF879004E8D049F786b0C52Aba4e30EcC',
+        l2GatewayRouter: '0x7baeeb76af9079DC23FC7f7C6D3BD9E2b9C75C80',
+        l2Multicall: '0x3729DCB701162ea50eE4783f24A5130A9b813277',
+        l2ProxyAdmin: '0x6D9201a5355690806ea181512D8966465666F7e0',
+        l2Weth: '0x6D4D897fE42cFb72Db5f2D43BC94A8aBa303c905',
+        l2WethGateway: '0x443977b79f1ad2aEA742e7D03124197bAcd40110',
+      },
+    },
+  })
 
   /**
    * Use l2Network to create an Arbitrum SDK EthBridger instance
@@ -160,6 +206,27 @@ const main = async () => {
   console.log(
     `Sending greeting to L2 with ${L1ToL2MessageGasParams.deposit.toString()} callValue for L2 fees:`
   )
+  // get call data
+  const callDataForL1Execution = l1Greeter.interface.encodeFunctionData(
+    'setGreetingInL2',
+    [
+      newGreeting,
+      L1ToL2MessageGasParams.maxSubmissionCost,
+      L1ToL2MessageGasParams.gasLimit,
+      gasPriceBid,
+    ]
+  )
+  console.log('params', [
+    newGreeting,
+    L1ToL2MessageGasParams.maxSubmissionCost,
+    L1ToL2MessageGasParams.gasLimit,
+    gasPriceBid,
+  ])
+  console.log('Call data for L1 execution:', callDataForL1Execution)
+  console.log('value:', L1ToL2MessageGasParams.deposit.toString())
+
+  await new Promise(resolve => setTimeout(resolve, 5000))
+
   const setGreetingTx = await l1Greeter.setGreetingInL2(
     newGreeting, // string memory _greeting,
     L1ToL2MessageGasParams.maxSubmissionCost,
@@ -184,7 +251,9 @@ const main = async () => {
    */
   const messages = await l1TxReceipt.getL1ToL2Messages(l2Wallet)
   const message = messages[0]
-  console.log('Waiting for the L2 execution of the transaction. This may take up to 10-15 minutes ⏰')
+  console.log(
+    'Waiting for the L2 execution of the transaction. This may take up to 10-15 minutes ⏰'
+  )
   const messageResult = await message.waitForStatus()
   const status = messageResult.status
   if (status === L1ToL2MessageStatus.REDEEMED) {

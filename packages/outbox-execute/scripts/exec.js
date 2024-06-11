@@ -1,8 +1,8 @@
 const { providers, Wallet } = require('ethers')
 const {
-  addDefaultLocalNetwork,
   L2TransactionReceipt,
   L2ToL1MessageStatus,
+  addCustomNetwork,
 } = require('@arbitrum/sdk')
 const { arbLog, requireEnvVariables } = require('arb-shared-dependencies')
 require('dotenv').config()
@@ -22,10 +22,41 @@ module.exports = async txnHash => {
   await arbLog('Outbox Execution')
 
   /**
-   * Add the default local network configuration to the SDK
-   * to allow this script to run on a local node
+   * Add the custom network configuration to the SDK
+   * to allow this script to run on a custom network
    */
-  addDefaultLocalNetwork()
+  addCustomNetwork({
+    customL1Network: {
+      chainID: 84532,
+      name: 'Base sepolia',
+      explorerUrl: 'https://sepolia.basescan.com',
+      isArbitrum: false,
+      isCustom: true,
+      blockTime: 5,
+      partnerChainIDs: [1],
+    },
+    customL2Network: {
+      chainID: 48220505331,
+      name: '3base testnet',
+      explorerUrl: 'https://base.nautscan.com',
+      partnerChainID: 84532,
+      isArbitrum: true,
+      tokenBridge: {},
+      ethBridge: {
+        bridge: '0xD1f5071dEe8CcB24CB06E569B91CB28D0ddC69f5',
+        inbox: '0x36a1C54eF8b855AA9c615Fe79084Ba0187f3e23F',
+        outbox: '0xb206292766f63200f9c6151C2667048eDA397c9a',
+        rollup: '0x555fb408604e7FbCfAfb3A87F47771228A5e50F1',
+        sequencerInbox: '0x0264a71E02799EDb1d6f6cBdFBcfbFffDc1b743b',
+      },
+      confirmPeriodBlocks: 20,
+      isCustom: true,
+      retryableLifetimeSeconds: 7 * 24 * 60 * 60,
+      nitroGenesisBlock: 0,
+      nitroGenesisL1Block: 0,
+      depositTimeout: 600000,
+    },
+  })
 
   /**
    / * We start with a txn hash; we assume this is transaction that triggered an L2 to L1 Message on L2 (i.e., ArbSys.sendTxToL1)
@@ -72,7 +103,9 @@ module.exports = async txnHash => {
   /**
    * Now that its confirmed and not executed, we can execute our message in its outbox entry.
    */
-  const res = await l2ToL1Msg.execute(l2Provider)
+  const res = await l2ToL1Msg.execute(l2Provider, {
+    gasLimit: 3000000,
+  })
   const rec = await res.wait()
   console.log('Done! Your transaction is executed', rec)
 }

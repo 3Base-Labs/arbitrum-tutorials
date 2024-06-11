@@ -1,14 +1,9 @@
-const { utils, providers, Wallet } = require('ethers')
-const {
-  EthBridger,
-  getL2Network,
-  EthDepositStatus,
-  addCustomNetwork,
-} = require('@arbitrum/sdk')
-const { parseEther } = utils
+const { providers, Wallet } = require('ethers')
+const hre = require('hardhat')
+const ethers = require('ethers')
 const { arbLog, requireEnvVariables } = require('arb-shared-dependencies')
-require('dotenv').config()
-requireEnvVariables(['DEVNET_PRIVKEY', 'L1RPC', 'L2RPC'])
+const { EthBridger, getL2Network, addCustomNetwork } = require('@arbitrum/sdk')
+requireEnvVariables(['DEVNET_PRIVKEY', 'L2RPC', 'L1RPC'])
 
 /**
  * Set up: instantiate L1 / L2 wallets connected to providers
@@ -21,17 +16,11 @@ const l2Provider = new providers.JsonRpcProvider(process.env.L2RPC)
 const l1Wallet = new Wallet(walletPrivateKey, l1Provider)
 const l2Wallet = new Wallet(walletPrivateKey, l2Provider)
 
-/**
- * Set the amount to be deposited in L2 (in wei)
- */
-const ethToL2DepositAmount = parseEther('0.1')
-
-const main = async () => {
-  await arbLog('Deposit Eth via Arbitrum SDK')
-
+async function l2tol1() {
+  await arbLog('Cross-chain Greeter')
   /**
-   * Add the default local network configuration to the SDK
-   * to allow this script to run on a local node
+   * Add a custom network to the Arbitrum SDK
+   * This is necessary to use the EthBridger, which requires information about the L1 and L2 networks
    */
   addCustomNetwork({
     customL1Network: {
@@ -83,64 +72,66 @@ const main = async () => {
 
   /**
    * Use l2Network to create an Arbitrum SDK EthBridger instance
-   * We'll use EthBridger for its convenience methods around transferring ETH to L2
+   * We'll use EthBridger to retrieve the Inbox address
    */
 
   const l2Network = await getL2Network(l2Provider)
   const ethBridger = new EthBridger(l2Network)
+  const inboxAddress = ethBridger.l2Network.ethBridge.inbox
 
   /**
-   * First, let's check the l2Wallet initial ETH balance
+   * We deploy L1 Greeter to L1, L2 greeter to L2, each with a different "greeting" message.
+   * After deploying, save set each contract's counterparty's address to its state so that they can later talk to each other.
    */
-  const l2WalletInitialEthBalance = await l2Wallet.getBalance()
+  const L1Greeter = await (
+    await hre.ethers.getContractFactory('GreeterL1')
+  ).connect(l1Wallet) //
+  console.log('Deploying L1 Greeter 👋')
+  const l1Greeter = await L1Greeter.deploy(
+    'Hello world in L1',
+    ethers.constants.AddressZero, // temp l2 addr
+    inboxAddress
+  )
+  await l1Greeter.deployed()
+  console.log(`deployed to ${l1Greeter.address}`)
+  const L2Greeter = await (
+    await hre.ethers.getContractFactory('GreeterL2')
+  ).connect(l2Wallet)
 
-  /**
-   * transfer ether from L1 to L2
-   * This convenience method automatically queries for the retryable's max submission cost and forwards the appropriate amount to L2
-   * Arguments required are:
-   * (1) amount: The amount of ETH to be transferred to L2
-   * (2) l1Signer: The L1 address transferring ETH to L2
-   * (3) l2Provider: An l2 provider
-   */
-  const depositTx = await ethBridger.deposit({
-    amount: ethToL2DepositAmount,
-    l1Signer: l1Wallet,
-    l2Provider: l2Provider,
-  })
+  console.log('Deploying L2 Greeter 👋👋')
 
-  const depositRec = await depositTx.wait()
-  console.warn('deposit L1 receipt is:', depositRec.transactionHash)
+  const l2Greeter = await L2Greeter.deploy(
+    'Hello world in L2',
+    ethers.constants.AddressZero // temp l1 addr
+  )
+  await l2Greeter.deployed()
+  console.log(`deployed to ${l2Greeter.address}`)
 
-  /**
-   * With the transaction confirmed on L1, we now wait for the L2 side (i.e., balance credited to L2) to be confirmed as well.
-   * Here we're waiting for the Sequencer to include the L2 message in its off-chain queue. The Sequencer should include it in under 10 minutes.
-   */
-  console.warn('Now we wait for L2 side of the transaction to be executed ⏳')
-  const l2Result = await depositRec.waitForL2(l2Provider)
-  /**
-   * The `complete` boolean tells us if the l1 to l2 message was successful
-   */
-  l2Result.complete
-    ? console.log(
-        `L2 message successful: status: ${
-          EthDepositStatus[await l2Result.message.status()]
-        }`
-      )
-    : console.log(
-        `L2 message failed: status ${
-          EthDepositStatus[await l2Result.message.status()]
-        }`
-      )
+  const updateL1Tx = await l1Greeter.updateL2Target(l2Greeter.address)
+  await updateL1Tx.wait()
 
-  /**
-   * Our l2Wallet ETH balance should be updated now
-   */
-  const l2WalletUpdatedEthBalance = await l2Wallet.getBalance()
+  const updateL2Tx = await l2Greeter.updateL1Target(l1Greeter.address)
+  await updateL2Tx.wait()
+  console.log('Counterpart contract addresses set in both greeters 👍')
+
+  // Now we can call the L2 contract to send a message back to L1
+  console.log('Sending a message from L2 to L1:')
+  const newGreetingL1 = 'Hello from the other side'
+  const callData = l2Greeter.interface.encodeFunctionData('setGreetingInL1', [
+    newGreetingL1,
+  ])
+  console.log('Call data for L2 execution:', callData)
+
+  await new Promise(resolve => setTimeout(resolve, 5000))
+
+  const setGreetingL1Tx = await l2Greeter.setGreetingInL1(newGreetingL1)
+  const setGreetingL1Rec = await setGreetingL1Tx.wait()
   console.log(
-    `your L2 ETH balance is updated from ${l2WalletInitialEthBalance.toString()} to ${l2WalletUpdatedEthBalance.toString()}`
+    `Greeting txn confirmed on L2! 🙌 ${setGreetingL1Rec.transactionHash}`
   )
 }
-main()
+
+l2tol1()
   .then(() => process.exit(0))
   .catch(error => {
     console.error(error)
