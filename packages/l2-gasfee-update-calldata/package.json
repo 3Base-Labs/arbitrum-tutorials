@@ -1,0 +1,16 @@
+{
+  "name": "l2-gasfee-update-calldata",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@arbitrum/sdk": "3.1.9",
+    "ethers": "5.7"
+  }
+}
